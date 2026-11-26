@@ -67,11 +67,17 @@
   #status.on { display: block; }
   .summary { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; }
   #headline { font-size: 19px; }
-  .count { font: 12px/1 var(--sans); letter-spacing: .08em; color: var(--muted); white-space: nowrap; }
-  .bar { height: 1px; background: var(--line); overflow: hidden; }
-  .bar > i { display: block; height: 100%; width: 0; background: var(--mark); transition: width .6s ease; }
+  .count { font: 12px/1 var(--sans); letter-spacing: .08em; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .bar { height: 2px; background: var(--line); overflow: hidden; border-radius: 2px; }
+  .bar > i { display: block; position: relative; height: 100%; width: 0; background: var(--mark); transition: width .35s linear; overflow: hidden; }
+  .bar.run > i::after {
+    content: ""; position: absolute; inset: 0; width: 40%;
+    background: linear-gradient(90deg, transparent, var(--bg), transparent); opacity: .55;
+    animation: sheen 2.4s ease-in-out infinite;
+  }
+  @keyframes sheen { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
 
-  ul { list-style: none; padding: 0; margin: 18px 0 0; max-height: 46vh; overflow: auto; }
+  ul { list-style: none; padding: 0; margin: 14px 0 0; max-height: 46vh; overflow: auto; position: relative; }
   li {
     display: flex; align-items: baseline; gap: 12px;
     padding: 9px 0; border-bottom: 1px solid var(--line);
@@ -84,9 +90,9 @@
   li.bad .st { color: var(--bad); }
   li.busy .st { color: var(--muted); animation: breathe 1.6s ease-in-out infinite; }
   @keyframes breathe { 50% { opacity: .35; } }
-  .note { color: var(--muted); font: 13px/1.5 var(--sans); margin-top: 14px; }
+  .note { color: var(--muted); font: 13px/1.5 var(--sans); margin: 12px 0 0; min-height: 1.5em; }
   input[type=file] { display: none; }
-  @media (prefers-reduced-motion: reduce) { main, li.busy .st { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { main, li.busy .st, .bar.run > i::after { animation: none; } }
 </style>
 </head>
 <body>
@@ -110,8 +116,8 @@
   <section id="status" aria-live="polite">
     <div class="summary"><span id="headline">Hleð upp…</span><span class="count" id="count"></span></div>
     <div class="bar" id="bar"><i></i></div>
-    <ul id="list"></ul>
     <p class="note" id="note"></p>
+    <ul id="list"></ul>
   </section>
 </main>
 
@@ -120,7 +126,7 @@
 const API = "https://script.google.com/macros/s/AKfycbyTuR0xoFTD3sFmkqfRcNg34-znVrCOiyJQjUrx29rQlb9eYOLwv_k2klQUX8SOoQp1/exec";
 
 const MAX_BYTES = 35 * 1024 * 1024;   // Apps Script takes about 50 MB per request; base64 adds a third
-const PARALLEL = 3;
+const PARALLEL = 4;
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp|tiff?|dng|cr2|cr3|nef|arw|raf|orf|rw2|mp3|m4a|wav|aiff?|flac|ogg|oga|opus|aac)$/i;
 
 const drop = document.getElementById('drop');
@@ -130,6 +136,42 @@ const bar = document.getElementById('bar');
 
 const queue = [];
 let total = 0, finished = 0, failed = 0, skipped = 0, running = 0;
+
+// ---- progress -----------------------------------------------------------
+// The browser can't report upload progress for this kind of request (asking for it
+// would break the connection to Google), so progress is counted in bytes: files that
+// are finished count fully, and files on their way are estimated from the speed
+// measured on the files that already arrived. The bar never jumps backwards.
+const ENC = 1.37;                 // base64 + JSON makes each file ~37% larger on the wire
+let bytesTotal = 0, bytesDone = 0, shown = 0, startedAt = 0, ticker = 0;
+let rate = 0;                     // bytes per second for one request, measured
+let overhead = 2.5;               // seconds Google spends per file regardless of size
+const inflight = new Set();
+
+function expected(it) {
+  const r = rate || 400 * 1024;   // first guess until a file has arrived
+  return overhead + it.file.size * ENC / r;
+}
+function learn(it) {
+  const secs = (performance.now() - it.t0) / 1000;
+  const obs = it.file.size * ENC / Math.max(0.4, secs - overhead * 0.8);
+  rate = rate ? rate * 0.6 + obs * 0.4 : obs;
+}
+function estimate() {
+  let b = bytesDone;
+  const now = performance.now();
+  for (const it of inflight) {
+    const t = (now - it.t0) / 1000;
+    b += it.file.size * 0.93 * (1 - Math.exp(-1.7 * t / expected(it)));
+  }
+  return bytesTotal ? Math.min(1, b / bytesTotal) : 0;
+}
+function tick() {
+  const target = estimate();
+  if (target > shown) shown = target;
+  draw();
+  if (finished >= total) { clearInterval(ticker); ticker = 0; }
+}
 
 // ---- choosing ---------------------------------------------------------
 drop.addEventListener('click', () => pickFiles.click());
@@ -182,11 +224,13 @@ function add(items) {
     const li = document.createElement('li');
     li.innerHTML = '<span class="name"></span><span class="st">Í biðröð</span>';
     li.querySelector('.name').textContent = (it.path ? it.path + '/' : '') + it.file.name;
-    list.prepend(li);
+    list.append(li);
     it.li = li;
     if (it.file.size > MAX_BYTES) { mark(it, 'bad', 'Of stór (yfir 35 MB)'); total++; finished++; failed++; continue; }
-    queue.push(it); total++;
+    queue.push(it); total++; bytesTotal += it.file.size;
   }
+  if (!ticker && queue.length) { startedAt = performance.now(); ticker = setInterval(tick, 250); }
+  shown = Math.min(shown, estimate());   // more files were added, so the share already sent is smaller
   document.getElementById('status').classList.add('on');
   update();
   pump();
@@ -196,7 +240,11 @@ function pump() {
   while (running < PARALLEL && queue.length) {
     const it = queue.shift();
     running++;
-    send(it).finally(() => { running--; finished++; update(); pump(); });
+    it.t0 = performance.now(); inflight.add(it);
+    send(it).finally(() => {
+      inflight.delete(it); bytesDone += it.file.size;
+      running--; finished++; tick(); update(); pump();
+    });
   }
 }
 
@@ -210,7 +258,7 @@ async function send(it) {
         body: JSON.stringify({ name: it.file.name, type: it.file.type, path: it.path, data })
       });
       const j = await r.json();
-      if (j.ok) { mark(it, 'ok', 'Komin'); return; }
+      if (j.ok) { learn(it); mark(it, 'ok', 'Komin'); return; }
       throw new Error(j.error || 'failed');
     } catch (err) {
       if (attempt === 3) { failed++; mark(it, 'bad', 'Mistókst'); return; }
@@ -228,21 +276,48 @@ function base64(file) {
   });
 }
 
-function mark(it, cls, text) { it.li.className = cls; it.li.querySelector('.st').textContent = text; }
+function mark(it, cls, text) {
+  it.li.className = cls; it.li.querySelector('.st').textContent = text;
+  // Keep the files that are on their way in view, with the finished ones just above them.
+  if (cls === 'busy') {
+    const first = list.querySelector('li.busy');
+    if (first) list.scrollTo({ top: Math.max(0, first.offsetTop - list.offsetTop - 2 * first.offsetHeight), behavior: 'smooth' });
+  }
+}
+
+function minutes(n) { return n % 10 === 1 && n % 100 !== 11 ? 'mínúta' : 'mínútur'; }
+
+function remaining() {
+  // Overall speed so far; only once something has arrived and a few seconds have passed.
+  const secs = (performance.now() - startedAt) / 1000;
+  if (finished - failed < 1 || secs < 4 || shown <= 0) return '';
+  const left = secs * (1 - shown) / shown;
+  if (left < 8) return '';
+  if (left < 50) return 'Innan við mínúta eftir.';
+  const m = Math.round(left / 60);
+  return `Um það bil ${m} ${minutes(m)} eftir.`;
+}
+
+function draw() {
+  const done = finished >= total && total > 0;
+  const p = done ? 1 : shown;
+  bar.firstElementChild.style.width = (p * 100).toFixed(2) + '%';
+  bar.classList.toggle('run', !done && total > 0);
+  document.getElementById('count').textContent =
+    !total ? '' : done ? `${finished - failed} af ${total} komnar` : `${finished - failed} af ${total} · ${Math.floor(p * 100)}%`;
+  const notes = [];
+  if (skipped) notes.push(`${skipped} ${skipped % 10 === 1 && skipped % 100 !== 11 ? 'skrá' : 'skrám'} sleppt (hvorki myndir né tónlist).`);
+  if (!done && total) { const r = remaining(); if (r) notes.push(r); notes.push('Ekki loka síðunni fyrr en allt er komið.'); }
+  document.getElementById('note').textContent = notes.join(' ');
+}
 
 function update() {
   const done = finished >= total && total > 0;
-  bar.firstElementChild.style.width = (total ? finished / total * 100 : 0) + '%';
-  bar.classList.toggle('done', done && !failed);
-  document.getElementById('count').textContent = total ? `${finished - failed} af ${total} komnar` : '';
+  draw();
   document.getElementById('headline').textContent =
     !total ? 'Engar myndir eða tónlist fundust' :
     !done ? 'Hleð upp…' :
     failed ? `Búið — ekki tókst að hlaða upp ${failed}` : 'Móttekið, takk fyrir!';
-  const notes = [];
-  if (skipped) notes.push(`${skipped} ${skipped % 10 === 1 && skipped % 100 !== 11 ? 'skrá' : 'skrám'} sleppt (hvorki myndir né tónlist).`);
-  if (!done && total) notes.push('Ekki loka síðunni fyrr en allt er komið.');
-  document.getElementById('note').textContent = notes.join(' ');
 }
 
 addEventListener('beforeunload', e => { if (finished < total) { e.preventDefault(); e.returnValue = ''; } });
