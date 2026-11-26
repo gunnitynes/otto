@@ -5,6 +5,11 @@
  *
  * Setup (once): paste this into a new Apps Script project, run `setup` and allow access,
  * then Deploy ▸ New deployment ▸ Web app, Execute as: Me, Who has access: Anyone.
+ *
+ * Viewing: GET ?list=1 returns every file (newest last) so the gallery page can show them.
+ * Each file is shared "anyone with the link can view" so the browser can load the picture
+ * or the song straight from Drive; files can't be found without the list.
+ * To hide something from the gallery, move it to the trash in Drive.
  */
 
 const FOLDER_NAME = 'otto';
@@ -16,8 +21,85 @@ function setup() {
   Logger.log('Photos will be saved in: ' + folder.getUrl());
 }
 
-function doGet() {
+// Run once after adding the gallery: shares the files that were uploaded before it existed.
+function shareAll() {
+  let n = 0;
+  walk_(root_(), '', (file) => { share_(file); n++; });
+  CacheService.getScriptCache().remove('list');
+  Logger.log('Shared ' + n + ' files for viewing.');
+}
+
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  if (p.list) return json_({ ok: true, files: list_() });
+  if (p.file) return serve_(p.file);
   return json_({ ok: true, app: 'otto' });
+}
+
+// Music is played through here: Drive refuses direct audio requests from other websites.
+// Only files inside the otto folder are handed out.
+function serve_(id) {
+  try {
+    const f = DriveApp.getFileById(id);
+    if (f.isTrashed() || !inside_(f)) return json_({ ok: false, error: 'not found' });
+    const b = f.getBlob();
+    return json_({ ok: true, type: b.getContentType(), data: Utilities.base64Encode(b.getBytes()) });
+  } catch (err) {
+    return json_({ ok: false, error: 'not found' });
+  }
+}
+
+function inside_(file) {
+  const rootId = root_().getId();
+  let level = [file.getParents()];
+  for (let depth = 0; depth <= MAX_DEPTH + 1 && level.length; depth++) {
+    const next = [];
+    for (const it of level) {
+      while (it.hasNext()) {
+        const d = it.next();
+        if (d.getId() === rootId) return true;
+        next.push(d.getParents());
+      }
+    }
+    level = next;
+  }
+  return false;
+}
+
+function list_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('list');
+  if (hit) return JSON.parse(hit);
+  const out = [];
+  walk_(root_(), '', (file, path) => out.push({
+    id: file.getId(),
+    name: file.getName(),
+    type: file.getMimeType(),
+    path: path,
+    size: file.getSize(),
+    t: file.getDateCreated().getTime()
+  }));
+  out.sort((a, b) => a.t - b.t);
+  const text = JSON.stringify(out);
+  if (text.length < 95000) cache.put('list', text, 60);
+  return out;
+}
+
+function walk_(folder, path, fn) {
+  const files = folder.getFiles();
+  while (files.hasNext()) {
+    const f = files.next();
+    if (!f.isTrashed()) fn(f, path);
+  }
+  const subs = folder.getFolders();
+  while (subs.hasNext()) {
+    const d = subs.next();
+    if (!d.isTrashed()) walk_(d, path ? path + '/' + d.getName() : d.getName(), fn);
+  }
+}
+
+function share_(file) {
+  try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
 }
 
 function doPost(e) {
@@ -32,6 +114,8 @@ function doPost(e) {
     const folder = folderFor_(req.path || '');
     const blob = Utilities.newBlob(bytes, req.type || 'application/octet-stream', clean_(req.name));
     const file = folder.createFile(blob);
+    share_(file);
+    CacheService.getScriptCache().remove('list');
     return json_({ ok: true, id: file.getId() });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
