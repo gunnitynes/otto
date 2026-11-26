@@ -4,7 +4,8 @@ A one-page site where anyone with the link can drag in photos (single files, man
 folders) or click to pick them. Every photo lands in a **otto** folder in your Google Drive;
 uploaded folders keep their structure as subfolders.
 
-- `index.html` — the page (GitHub Pages). `const API` holds the Apps Script web app URL.
+- The page itself now lives at https://gunnartynes.com/otto/ — `otto/index.html` in the `gunnartynes-site` repo (~/gunnartynes-catalogue). `const API` there holds the Apps Script web app URL.
+- `index.html` here only redirects the old gunnitynes.github.io/otto address to the new one.
 - `Code.gs` — the backend (Google Apps Script web app that writes to Drive).
 
 ## Setup
@@ -18,6 +19,6 @@ Limits: photos up to 35 MB each (Apps Script request limit). Non-photo files are
 Anyone with the page link can upload, so only share it with people you trust.
 
 ## Live
-- Page: https://gunnitynes.github.io/otto/
+- Page: https://gunnartynes.com/otto/ (old https://gunnitynes.github.io/otto/ redirects)
 - Backend: Apps Script project "otto" on the separate Google account; photos land in its Drive folder "otto".
 - After editing Code.gs: Deploy ▸ Manage deployments ▸ Edit ▸ New version (keeps the same URL).
