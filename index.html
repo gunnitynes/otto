@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>otto</title>
+<style>
+  :root {
+    --bg: #f6f3ee;
+    --card: #ffffff;
+    --ink: #1d1b18;
+    --muted: #7a746b;
+    --line: #ddd6cb;
+    --accent: #2f6df6;
+    --accent-soft: #e7eefe;
+    --ok: #1f9d55;
+    --bad: #d64545;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141312; --card: #1d1c1a; --ink: #f1ede6; --muted: #9a948b;
+      --line: #36332f; --accent: #6b97ff; --accent-soft: #1f2a44; --ok: #4cc983; --bad: #f07474;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 16px;
+  }
+  main { width: 100%; max-width: 640px; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+
+  #drop {
+    background: var(--card);
+    border: 2px dashed var(--line);
+    border-radius: 18px;
+    min-height: 260px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; text-align: center; padding: 32px 20px;
+    cursor: pointer; transition: border-color .15s, background .15s, transform .15s;
+    user-select: none;
+  }
+  #drop:hover { border-color: var(--accent); }
+  #drop:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  #drop.over { border-color: var(--accent); background: var(--accent-soft); transform: scale(1.01); }
+  #drop svg { width: 52px; height: 52px; color: var(--accent); }
+  #drop .big { font-size: 19px; font-weight: 600; }
+  #drop .small { color: var(--muted); font-size: 14px; }
+  #folderLink {
+    background: none; border: 0; padding: 0; font: inherit; color: var(--accent);
+    text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+  }
+
+  #status { margin-top: 22px; display: none; }
+  #status.on { display: block; }
+  .summary { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; margin-bottom: 8px; }
+  .summary .count { color: var(--muted); font-weight: 500; }
+  .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .bar.done > i { background: var(--ok); }
+
+  ul { list-style: none; padding: 0; margin: 14px 0 0; max-height: 46vh; overflow: auto; }
+  li {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 2px; border-bottom: 1px solid var(--line); font-size: 14px;
+  }
+  li .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li .st { flex: none; color: var(--muted); font-size: 13px; }
+  li.ok .st { color: var(--ok); }
+  li.bad .st { color: var(--bad); }
+  li.busy .st::before {
+    content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px;
+    border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .note { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>otto</h1>
+  <p class="sub">Share your photos — drop them here and they go straight into the shared album.</p>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Choose photos to upload">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="10" r="1.6"/>
+      <path d="M21 16l-5-5-9 9"/>
+    </svg>
+    <div class="big">Drag photos or folders here</div>
+    <div class="small">or click to choose photos · <button type="button" id="folderLink">choose a folder</button></div>
+  </div>
+
+  <input type="file" id="pickFiles" multiple accept="image/*,.heic,.heif,.dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2,.tif,.tiff">
+  <input type="file" id="pickFolder" webkitdirectory multiple>
+
+  <section id="status" aria-live="polite">
+    <div class="summary"><span id="headline">Uploading…</span><span class="count" id="count"></span></div>
+    <div class="bar" id="bar"><i></i></div>
+    <ul id="list"></ul>
+    <p class="note" id="note"></p>
+  </section>
+</main>
+
+<script>
+// The Apps Script web app URL (ends in /exec).
+const API = "https://script.google.com/macros/s/AKfycbyTuR0xoFTD3sFmkqfRcNg34-znVrCOiyJQjUrx29rQlb9eYOLwv_k2klQUX8SOoQp1/exec";
+
+const MAX_BYTES = 35 * 1024 * 1024;   // Apps Script takes about 50 MB per request; base64 adds a third
+const PARALLEL = 3;
+const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp|tiff?|dng|cr2|cr3|nef|arw|raf|orf|rw2)$/i;
+
+const drop = document.getElementById('drop');
+const pickFiles = document.getElementById('pickFiles');
+const pickFolder = document.getElementById('pickFolder');
+const list = document.getElementById('list');
+const bar = document.getElementById('bar');
+
+const queue = [];
+let total = 0, finished = 0, failed = 0, skipped = 0, running = 0;
+
+// ---- choosing ---------------------------------------------------------
+drop.addEventListener('click', e => { if (e.target.id !== 'folderLink') pickFiles.click(); });
+drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFiles.click(); } });
+document.getElementById('folderLink').addEventListener('click', e => { e.stopPropagation(); pickFolder.click(); });
+
+pickFiles.addEventListener('change', () => { add([...pickFiles.files].map(f => ({ file: f, path: '' }))); pickFiles.value = ''; });
+pickFolder.addEventListener('change', () => {
+  add([...pickFolder.files].map(f => ({ file: f, path: dirOf(f.webkitRelativePath) })));
+  pickFolder.value = '';
+});
+
+// Drag anywhere on the page works, not only on the box.
+let depth = 0;
+addEventListener('dragenter', e => { e.preventDefault(); depth++; drop.classList.add('over'); });
+addEventListener('dragleave', e => { if (--depth <= 0) { depth = 0; drop.classList.remove('over'); } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', async e => {
+  e.preventDefault(); depth = 0; drop.classList.remove('over');
+  const items = [...(e.dataTransfer.items || [])];
+  // Entries must be taken synchronously, before any await.
+  const entries = items.map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  if (entries.length) {
+    const found = [];
+    for (const entry of entries) await walk(entry, '', found);
+    add(found);
+  } else {
+    add([...e.dataTransfer.files].map(f => ({ file: f, path: '' })));
+  }
+});
+
+async function walk(entry, dir, out) {
+  if (entry.isFile) {
+    const file = await new Promise((res, rej) => entry.file(res, rej)).catch(() => null);
+    if (file) out.push({ file, path: dir });
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const sub = dir ? dir + '/' + entry.name : entry.name;
+    // readEntries returns at most ~100 at a time; keep reading until empty.
+    for (;;) {
+      const batch = await new Promise((res, rej) => reader.readEntries(res, rej)).catch(() => []);
+      if (!batch.length) break;
+      for (const child of batch) await walk(child, sub, out);
+    }
+  }
+}
+
+function dirOf(rel) { const i = rel.lastIndexOf('/'); return i > 0 ? rel.slice(0, i) : ''; }
+function isImage(f) { return (f.type && f.type.startsWith('image/')) || IMAGE_EXT.test(f.name); }
+
+// ---- queue ------------------------------------------------------------
+function add(items) {
+  for (const it of items) {
+    if (it.file.name.startsWith('.') || !isImage(it.file)) { skipped++; continue; }
+    const li = document.createElement('li');
+    li.innerHTML = '<span class="name"></span><span class="st">Waiting</span>';
+    li.querySelector('.name').textContent = (it.path ? it.path + '/' : '') + it.file.name;
+    list.prepend(li);
+    it.li = li;
+    if (it.file.size > MAX_BYTES) { mark(it, 'bad', 'Too large (over 35 MB)'); total++; finished++; failed++; continue; }
+    queue.push(it); total++;
+  }
+  document.getElementById('status').classList.add('on');
+  update();
+  pump();
+}
+
+function pump() {
+  while (running < PARALLEL && queue.length) {
+    const it = queue.shift();
+    running++;
+    send(it).finally(() => { running--; finished++; update(); pump(); });
+  }
+}
+
+async function send(it) {
+  mark(it, 'busy', 'Uploading');
+  const data = await base64(it.file);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const r = await fetch(API, {
+        method: 'POST',
+        body: JSON.stringify({ name: it.file.name, type: it.file.type, path: it.path, data })
+      });
+      const j = await r.json();
+      if (j.ok) { mark(it, 'ok', 'Uploaded'); return; }
+      throw new Error(j.error || 'failed');
+    } catch (err) {
+      if (attempt === 3) { failed++; mark(it, 'bad', 'Failed'); return; }
+      await new Promise(r => setTimeout(r, 1500 * attempt));
+    }
+  }
+}
+
+function base64(file) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result).split(',')[1] || '');
+    fr.onerror = rej;
+    fr.readAsDataURL(file);
+  });
+}
+
+function mark(it, cls, text) { it.li.className = cls; it.li.querySelector('.st').textContent = text; }
+
+function update() {
+  const done = finished >= total && total > 0;
+  bar.firstElementChild.style.width = (total ? finished / total * 100 : 0) + '%';
+  bar.classList.toggle('done', done && !failed);
+  document.getElementById('count').textContent = total ? `${finished - failed} of ${total} uploaded` : '';
+  document.getElementById('headline').textContent =
+    !total ? 'No photos found' :
+    !done ? 'Uploading…' :
+    failed ? `Done — ${failed} didn’t upload` : 'All done, thank you!';
+  const notes = [];
+  if (skipped) notes.push(`${skipped} file${skipped > 1 ? 's' : ''} skipped (not photos).`);
+  if (!done && total) notes.push('Keep this page open until it says done.');
+  document.getElementById('note').textContent = notes.join(' ');
+}
+
+addEventListener('beforeunload', e => { if (finished < total) { e.preventDefault(); e.returnValue = ''; } });
+</script>
+</body>
+</html>
