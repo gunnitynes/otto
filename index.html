@@ -51,10 +51,6 @@
   #drop svg { width: 52px; height: 52px; color: var(--accent); }
   #drop .big { font-size: 19px; font-weight: 600; }
   #drop .small { color: var(--muted); font-size: 14px; }
-  #folderLink {
-    background: none; border: 0; padding: 0; font: inherit; color: var(--accent);
-    text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
-  }
 
   #status { margin-top: 22px; display: none; }
   #status.on { display: block; }
@@ -85,20 +81,18 @@
 </head>
 <body>
 <main>
-  <h1>otto</h1>
-  <p class="sub">Deildu myndunum þínum — slepptu þeim hér og þær fara beint í sameiginlega albúmið.</p>
+  <h1>Myndir eða tónlist tengd Ottó Tynes</h1>
 
-  <div id="drop" tabindex="0" role="button" aria-label="Veldu myndir til að hlaða upp">
+  <div id="drop" tabindex="0" role="button" aria-label="Veldu myndir eða tónlist til að hlaða upp">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <rect x="3" y="5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="10" r="1.6"/>
       <path d="M21 16l-5-5-9 9"/>
     </svg>
-    <div class="big">Dragðu myndir eða möppur hingað</div>
-    <div class="small">eða smelltu til að velja myndir · <button type="button" id="folderLink">veldu möppu</button></div>
+    <div class="big">Dragðu myndir, tónlist eða möppur hingað</div>
+    <div class="small">eða smelltu til að velja</div>
   </div>
 
-  <input type="file" id="pickFiles" multiple accept="image/*,.heic,.heif,.dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2,.tif,.tiff">
-  <input type="file" id="pickFolder" webkitdirectory multiple>
+  <input type="file" id="pickFiles" multiple accept="image/*,audio/*,.mp3,.m4a,.wav,.aif,.aiff,.flac,.ogg,.aac,.heic,.heif,.dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2,.tif,.tiff">
 
   <section id="status" aria-live="polite">
     <div class="summary"><span id="headline">Hleð upp…</span><span class="count" id="count"></span></div>
@@ -114,11 +108,10 @@ const API = "https://script.google.com/macros/s/AKfycbyTuR0xoFTD3sFmkqfRcNg34-zn
 
 const MAX_BYTES = 35 * 1024 * 1024;   // Apps Script takes about 50 MB per request; base64 adds a third
 const PARALLEL = 3;
-const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp|tiff?|dng|cr2|cr3|nef|arw|raf|orf|rw2)$/i;
+const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp|tiff?|dng|cr2|cr3|nef|arw|raf|orf|rw2|mp3|m4a|wav|aiff?|flac|ogg|oga|opus|aac)$/i;
 
 const drop = document.getElementById('drop');
 const pickFiles = document.getElementById('pickFiles');
-const pickFolder = document.getElementById('pickFolder');
 const list = document.getElementById('list');
 const bar = document.getElementById('bar');
 
@@ -126,15 +119,10 @@ const queue = [];
 let total = 0, finished = 0, failed = 0, skipped = 0, running = 0;
 
 // ---- choosing ---------------------------------------------------------
-drop.addEventListener('click', e => { if (e.target.id !== 'folderLink') pickFiles.click(); });
+drop.addEventListener('click', () => pickFiles.click());
 drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFiles.click(); } });
-document.getElementById('folderLink').addEventListener('click', e => { e.stopPropagation(); pickFolder.click(); });
 
 pickFiles.addEventListener('change', () => { add([...pickFiles.files].map(f => ({ file: f, path: '' }))); pickFiles.value = ''; });
-pickFolder.addEventListener('change', () => {
-  add([...pickFolder.files].map(f => ({ file: f, path: dirOf(f.webkitRelativePath) })));
-  pickFolder.value = '';
-});
 
 // Drag anywhere on the page works, not only on the box.
 let depth = 0;
@@ -172,7 +160,7 @@ async function walk(entry, dir, out) {
 }
 
 function dirOf(rel) { const i = rel.lastIndexOf('/'); return i > 0 ? rel.slice(0, i) : ''; }
-function isImage(f) { return (f.type && f.type.startsWith('image/')) || IMAGE_EXT.test(f.name); }
+function isImage(f) { return (f.type && /^(image|audio)\//.test(f.type)) || IMAGE_EXT.test(f.name); }
 
 // ---- queue ------------------------------------------------------------
 function add(items) {
@@ -235,11 +223,11 @@ function update() {
   bar.classList.toggle('done', done && !failed);
   document.getElementById('count').textContent = total ? `${finished - failed} af ${total} komnar` : '';
   document.getElementById('headline').textContent =
-    !total ? 'Engar myndir fundust' :
+    !total ? 'Engar myndir eða tónlist fundust' :
     !done ? 'Hleð upp…' :
-    failed ? `Búið — ekki tókst að hlaða upp ${failed}` : 'Allt komið, takk fyrir!';
+    failed ? `Búið — ekki tókst að hlaða upp ${failed}` : 'Móttekið, takk fyrir!';
   const notes = [];
-  if (skipped) notes.push(`${skipped} ${skipped % 10 === 1 && skipped % 100 !== 11 ? 'skrá' : 'skrám'} sleppt (ekki myndir).`);
+  if (skipped) notes.push(`${skipped} ${skipped % 10 === 1 && skipped % 100 !== 11 ? 'skrá' : 'skrám'} sleppt (hvorki myndir né tónlist).`);
   if (!done && total) notes.push('Ekki loka síðunni fyrr en allt er komið.');
   document.getElementById('note').textContent = notes.join(' ');
 }

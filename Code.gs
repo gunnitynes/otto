@@ -1,6 +1,6 @@
 /**
  * otto — the backend.
- * Every photo sent from the page is saved into one Google Drive folder ("otto").
+ * Every photo or music file sent from the page is saved into one Google Drive folder ("otto").
  * Folders that people upload are recreated inside it, so their structure is kept.
  *
  * Setup (once): paste this into a new Apps Script project, run `setup` and allow access,
@@ -72,7 +72,7 @@ function folderFor_(path) {
   }
 }
 
-// Checks the file's first bytes, not its name: JPEG, PNG, GIF, WebP, BMP,
+// Checks the file's first bytes, not its name (photos and music): JPEG, PNG, GIF, WebP, BMP,
 // HEIC/HEIF/AVIF/CR3 (ISO "ftyp"), TIFF and the TIFF-based raws (DNG, CR2, NEF, ARW), ORF, RW2, RAF.
 function isImage_(b) {
   const h = (i) => (b[i] + 256) % 256;
@@ -87,6 +87,12 @@ function isImage_(b) {
   if (s(0, 4) === 'II*\u0000' || s(0, 4) === 'MM\u0000*') return true;
   if (s(0, 4) === 'IIRO' || s(0, 4) === 'IIRS' || s(0, 4) === 'IIU\u0000') return true;
   if (s(0, 8) === 'FUJIFILM') return true;
+  // Music: MP3 (ID3 tag or frame sync, also AAC/ADTS), WAV, AIFF, FLAC, Ogg. M4A is caught by "ftyp" above.
+  if (s(0, 3) === 'ID3') return true;
+  if (h(0) === 0xFF && (h(1) & 0xE0) === 0xE0) return true;
+  if (s(0, 4) === 'RIFF' && s(8, 4) === 'WAVE') return true;
+  if (s(0, 4) === 'FORM' && (s(8, 4) === 'AIFF' || s(8, 4) === 'AIFC')) return true;
+  if (s(0, 4) === 'fLaC' || s(0, 4) === 'OggS') return true;
   return false;
 }
 
