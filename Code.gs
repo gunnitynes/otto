@@ -10,11 +10,19 @@
  * Each file is shared "anyone with the link can view" so the browser can load the picture
  * or the song straight from Drive; files can't be found without the list.
  * To hide something from the gallery, move it to the trash in Drive.
+ *
+ * Most files arrive in pieces: op 'start' opens a Drive resumable upload. The page sends the
+ * pieces straight to Drive (fast); if that is refused it falls back to op 'piece', which
+ * forwards each piece from here (slow: this service takes data in at ~0.3 MB/s).
+ * op 'status' asks Drive how much it has, and when it has everything it shares the file.
  */
 
 const FOLDER_NAME = 'otto';
-const MAX_BYTES = 35 * 1024 * 1024;
+const MAX_BYTES = 35 * 1024 * 1024;              // one-request uploads (photos, most music)
+const BIG_MAX = 5 * 1024 * 1024 * 1024;            // pieced uploads (videos, big files)
+const PIECE = 16 * 1024 * 1024;                    // a multiple of 256 KB, as Drive requires
 const MAX_DEPTH = 6;
+const ORIGINS = /^(https:\/\/gunnartynes\.com|https:\/\/gunnitynes\.github\.io|http:\/\/127\.0\.0\.1:\d+|http:\/\/localhost:\d+)$/;
 
 function setup() {
   const folder = root_();
@@ -105,6 +113,9 @@ function share_(file) {
 function doPost(e) {
   try {
     const req = JSON.parse(e.postData.contents);
+    if (req.op === 'start') return json_(start_(req));
+    if (req.op === 'piece') return json_(piece_(req));
+    if (req.op === 'status') return json_(status_(req));
     if (!req.name || !req.data) return json_({ ok: false, error: 'missing file' });
 
     const bytes = Utilities.base64Decode(req.data);
@@ -120,6 +131,87 @@ function doPost(e) {
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
+}
+
+// ---- big files, in pieces ----------------------------------------------------
+function start_(req) {
+  const size = Number(req.size);
+  if (!req.name || !(size > 0) || size > BIG_MAX) return { ok: false, error: 'bad size' };
+  if (!isImage_(Utilities.base64Decode(req.head || ''))) return { ok: false, error: 'not a photo' };
+  const folder = folderFor_(req.path || '');
+  const type = req.type || 'application/octet-stream';
+  // When the page says where it runs, Drive lets that page send the pieces itself (much faster
+  // than through here). The upload address only allows filling this one new file.
+  const origin = ORIGINS.test(req.origin || '') ? req.origin : '';
+  const r = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
+    method: 'post',
+    contentType: 'application/json; charset=UTF-8',
+    headers: Object.assign({
+      Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+      'X-Upload-Content-Type': type,
+      'X-Upload-Content-Length': String(size)
+    }, origin ? { Origin: origin } : {}),
+    payload: JSON.stringify({ name: clean_(req.name), parents: [folder.getId()] }),
+    muteHttpExceptions: true
+  });
+  if (r.getResponseCode() !== 200) return { ok: false, error: 'start ' + r.getResponseCode() };
+  const h = r.getHeaders();
+  const loc = h.Location || h.location;
+  if (!loc) return { ok: false, error: 'no session' };
+  const key = Utilities.getUuid();
+  CacheService.getScriptCache().put('up_' + key, JSON.stringify({ loc: loc, size: size }), 21600);
+  return origin ? { ok: true, key: key, piece: PIECE, url: loc } : { ok: true, key: key, piece: PIECE };
+}
+
+function piece_(req) {
+  const s = session_(req.key);
+  if (!s) return { ok: false, error: 'expired' };
+  const bytes = Utilities.base64Decode(req.data || '');
+  const from = Number(req.offset);
+  if (!bytes.length || from < 0 || from + bytes.length > s.size) return { ok: false, error: 'bad piece' };
+  const r = UrlFetchApp.fetch(s.loc, {
+    method: 'put',
+    contentType: 'application/octet-stream',
+    headers: { 'Content-Range': 'bytes ' + from + '-' + (from + bytes.length - 1) + '/' + s.size },
+    payload: bytes,
+    muteHttpExceptions: true
+  });
+  return answer_(r, req.key);
+}
+
+function status_(req) {
+  const s = session_(req.key);
+  if (!s) return { ok: false, error: 'expired' };
+  const r = UrlFetchApp.fetch(s.loc, {
+    method: 'put',
+    headers: { 'Content-Range': 'bytes */' + s.size },
+    payload: '',
+    muteHttpExceptions: true
+  });
+  return answer_(r, req.key);
+}
+
+function session_(key) {
+  const v = key && CacheService.getScriptCache().get('up_' + key);
+  return v ? JSON.parse(v) : null;
+}
+
+function answer_(r, key) {
+  const code = r.getResponseCode();
+  if (code === 200 || code === 201) {
+    const id = JSON.parse(r.getContentText()).id;
+    share_(DriveApp.getFileById(id));
+    const cache = CacheService.getScriptCache();
+    cache.remove('list');
+    cache.remove('up_' + key);
+    return { ok: true, done: true, id: id };
+  }
+  if (code === 308) {
+    const h = r.getHeaders();
+    const range = h.Range || h.range;            // e.g. "bytes=0-16777215"
+    return { ok: true, next: range ? Number(String(range).split('-')[1]) + 1 : 0 };
+  }
+  return { ok: false, error: 'upload ' + code };
 }
 
 // The "otto" folder in My Drive, created on first use.
@@ -156,7 +248,7 @@ function folderFor_(path) {
   }
 }
 
-// Checks the file's first bytes, not its name (photos and music): JPEG, PNG, GIF, WebP, BMP,
+// Checks the file's first bytes, not its name (photos, music and video): JPEG, PNG, GIF, WebP, BMP,
 // HEIC/HEIF/AVIF/CR3 (ISO "ftyp"), TIFF and the TIFF-based raws (DNG, CR2, NEF, ARW), ORF, RW2, RAF.
 function isImage_(b) {
   const h = (i) => (b[i] + 256) % 256;
@@ -177,6 +269,14 @@ function isImage_(b) {
   if (s(0, 4) === 'RIFF' && s(8, 4) === 'WAVE') return true;
   if (s(0, 4) === 'FORM' && (s(8, 4) === 'AIFF' || s(8, 4) === 'AIFC')) return true;
   if (s(0, 4) === 'fLaC' || s(0, 4) === 'OggS') return true;
+  // Video: MP4/MOV/M4V/3GP are caught by "ftyp" above; older QuickTime, AVI, MKV/WebM, MPEG.
+  if (['moov', 'mdat', 'wide', 'free', 'skip', 'pnot'].indexOf(s(4, 4)) >= 0) return true;
+  if (s(0, 4) === 'RIFF' && s(8, 3) === 'AVI') return true;
+  if (h(0) === 0x1A && h(1) === 0x45 && h(2) === 0xDF && h(3) === 0xA3) return true;
+  if (h(0) === 0x00 && h(1) === 0x00 && h(2) === 0x01 && (h(3) === 0xBA || h(3) === 0xB3)) return true;
+  // MPEG transport stream: a sync byte every 188 bytes (.ts), or every 192 after a 4-byte stamp (.mts/.m2ts).
+  if (b.length > 380 && h(0) === 0x47 && h(188) === 0x47 && h(376) === 0x47) return true;
+  if (b.length > 390 && h(4) === 0x47 && h(196) === 0x47 && h(388) === 0x47) return true;
   return false;
 }
 

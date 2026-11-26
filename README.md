@@ -28,3 +28,8 @@ Anyone with the page link can upload, so only share it with people you trust.
 - Backend: `GET ?list=1` lists files; `GET ?file=<id>` returns a music file as base64 (only files inside the otto folder) because Drive refuses direct audio requests from other sites. Photos load from lh3.googleusercontent.com.
 - Every uploaded file is shared "anyone with the link can view" (run `shareAll` once for older files).
 - To hide something from the gallery, move it to the trash in Drive (the list is cached for 60 s).
+
+## Videos and big files
+- Files over 2 MB go in 16 MB pieces: `op:start` (script opens a Drive resumable upload, passing the page's Origin so Drive allows CORS) returns the upload URL; the page PUTs each piece straight to Drive (fast, real progress), then `op:status` lets the script share the file.
+- If Drive refuses the direct pieces, they go through the script (`op:piece`) — that works but is slow: Apps Script takes request bodies in at about 0.3 MB/s.
+- Allowed page origins are in `ORIGINS` in Code.gs. Limit 5 GB per file. Videos play in the gallery through Drive's own player (`/file/d/<id>/preview`).
