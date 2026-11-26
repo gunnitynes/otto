@@ -4,89 +4,101 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>otto</title>
+<title>Ottó Tynes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #f6f3ee;
-    --card: #ffffff;
-    --ink: #1d1b18;
-    --muted: #7a746b;
-    --line: #ddd6cb;
-    --accent: #2f6df6;
-    --accent-soft: #e7eefe;
-    --ok: #1f9d55;
-    --bad: #d64545;
+    --bg: #f4f2ee;
+    --ink: #2a2826;
+    --muted: #8b857d;
+    --faint: #b9b3aa;
+    --line: #dcd7cf;
+    --hover: #ece9e3;
+    --mark: #6b6860;
+    --bad: #9a5a4c;
+    --serif: "EB Garamond", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #141312; --card: #1d1c1a; --ink: #f1ede6; --muted: #9a948b;
-      --line: #36332f; --accent: #6b97ff; --accent-soft: #1f2a44; --ok: #4cc983; --bad: #f07474;
+      --bg: #1a1918; --ink: #e8e4dd; --muted: #948e85; --faint: #6c675f;
+      --line: #36332f; --hover: #22211f; --mark: #b5afa5; --bad: #c98b7c;
     }
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
+  html, body { margin: 0; min-height: 100%; }
   body {
     background: var(--bg); color: var(--ink);
-    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    display: flex; flex-direction: column; align-items: center;
-    padding: 40px 16px;
+    font: 17px/1.5 var(--serif);
+    display: flex; justify-content: center;
+    padding: clamp(56px, 14vh, 140px) 20px 64px;
+    -webkit-font-smoothing: antialiased;
   }
-  main { width: 100%; max-width: 640px; }
-  h1 { font-size: 28px; margin: 0 0 22px; letter-spacing: -0.02em; }
-  .sub { color: var(--muted); margin: 0 0 24px; }
+  main { width: 100%; max-width: 560px; animation: fade 1.2s ease both; }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+  header { text-align: center; margin-bottom: 48px; }
+  .kicker {
+    font: 500 11px/1 var(--sans); letter-spacing: .28em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 18px;
+  }
+  h1 { font-weight: 400; font-size: clamp(40px, 9vw, 56px); line-height: 1.05; margin: 0; letter-spacing: .01em; }
+  .rule { width: 36px; height: 1px; background: var(--faint); margin: 30px auto 0; border: 0; }
 
   #drop {
-    background: var(--card);
-    border: 2px dashed var(--line);
-    border-radius: 18px;
-    min-height: 260px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    min-height: 210px;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 10px; text-align: center; padding: 32px 20px;
-    cursor: pointer; transition: border-color .15s, background .15s, transform .15s;
+    gap: 6px; text-align: center; padding: 36px 24px;
+    cursor: pointer; transition: background .4s, border-color .4s;
     user-select: none;
   }
-  #drop:hover { border-color: var(--accent); }
-  #drop:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-  #drop.over { border-color: var(--accent); background: var(--accent-soft); transform: scale(1.01); }
-  #drop svg { width: 52px; height: 52px; color: var(--accent); }
-  #drop .big { font-size: 19px; font-weight: 600; }
-  #drop .small { color: var(--muted); font-size: 14px; }
+  #drop:hover, #drop.over { background: var(--hover); border-color: var(--faint); }
+  #drop:focus-visible { outline: 1px solid var(--mark); outline-offset: 4px; }
+  #drop svg { width: 22px; height: 22px; color: var(--muted); margin-bottom: 14px; }
+  #drop .big { font-size: 21px; font-style: italic; }
+  #drop .small { color: var(--muted); font-size: 16px; }
 
-  #status { margin-top: 22px; display: none; }
+  #status { margin-top: 36px; display: none; }
   #status.on { display: block; }
-  .summary { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; margin-bottom: 8px; }
-  .summary .count { color: var(--muted); font-weight: 500; }
-  .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
-  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
-  .bar.done > i { background: var(--ok); }
+  .summary { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+  #headline { font-size: 19px; }
+  .count { font: 12px/1 var(--sans); letter-spacing: .08em; color: var(--muted); white-space: nowrap; }
+  .bar { height: 1px; background: var(--line); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--mark); transition: width .6s ease; }
 
-  ul { list-style: none; padding: 0; margin: 14px 0 0; max-height: 46vh; overflow: auto; }
+  ul { list-style: none; padding: 0; margin: 18px 0 0; max-height: 46vh; overflow: auto; }
   li {
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 2px; border-bottom: 1px solid var(--line); font-size: 14px;
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 9px 0; border-bottom: 1px solid var(--line);
+    font: 13px/1.4 var(--sans);
   }
-  li .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  li .st { flex: none; color: var(--muted); font-size: 13px; }
-  li.ok .st { color: var(--ok); }
+  li .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  li .st { flex: none; color: var(--faint); font-size: 12px; }
+  li.ok .name { color: var(--ink); }
+  li.ok .st { color: var(--muted); }
   li.bad .st { color: var(--bad); }
-  li.busy .st::before {
-    content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px;
-    border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%;
-    animation: spin .8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .note { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  li.busy .st { color: var(--muted); animation: breathe 1.6s ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: .35; } }
+  .note { color: var(--muted); font: 13px/1.5 var(--sans); margin-top: 14px; }
   input[type=file] { display: none; }
+  @media (prefers-reduced-motion: reduce) { main, li.busy .st { animation: none; } }
 </style>
 </head>
 <body>
 <main>
-  <h1>Myndir eða tónlist tengd Ottó Tynes</h1>
+  <header>
+    <p class="kicker">Myndir eða tónlist tengd</p>
+    <h1>Ottó Tynes</h1>
+    <hr class="rule">
+  </header>
 
   <div id="drop" tabindex="0" role="button" aria-label="Veldu myndir eða tónlist til að hlaða upp">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <rect x="3" y="5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="10" r="1.6"/>
-      <path d="M21 16l-5-5-9 9"/>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
     </svg>
     <div class="big">Dragðu myndir, tónlist eða möppur hingað</div>
     <div class="small">eða smelltu til að velja</div>
